@@ -36,6 +36,8 @@ NSString * const kPBAppDelegateDefaultPayload = @"{\n\t\"aps\":{\n\t\t\"alert\":
 - (void)awakeFromNib {
   [super awakeFromNib];
   [self.fragaria embedInView:self.containerView];
+  NSString *token = [[NSUserDefaults standardUserDefaults] objectForKey:@"last_pushed_token"];
+  if (token) [self.tokenTextField setStringValue:token];
 }
 
 #pragma mark Actions
@@ -77,6 +79,7 @@ NSString * const kPBAppDelegateDefaultPayload = @"{\n\t\"aps\":{\n\t\t\"alert\":
 	if (self.APNS.identity != NULL) {
     NSString *token = [self preparedToken];
     [self.APNS pushPayload:self.payload withToken:token];
+    [[NSUserDefaults standardUserDefaults] setObject:token forKey:@"last_pushed_token"];
   } else {
 		NSAlert *alert = [NSAlert alertWithMessageText:@"Missing identity"
                                      defaultButton:@"OK"

@@ -17,6 +17,7 @@
 @property (nonatomic, strong, readonly) NSString *soundString;
 @property (nonatomic, strong, readonly) NSString *badgeString;
 
+@property (weak) IBOutlet NSButton *sandboxCheckBox;
 @property (nonatomic, strong) IBOutlet NSTextField *tokenTextField;
 
 @property (nonatomic, strong) IBOutlet NSView *containerView;

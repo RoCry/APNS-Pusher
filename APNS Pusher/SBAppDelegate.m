@@ -36,8 +36,25 @@ NSString * const kPBAppDelegateDefaultPayload = @"{\n\t\"aps\":{\n\t\t\"alert\":
 - (void)awakeFromNib {
   [super awakeFromNib];
   [self.fragaria embedInView:self.containerView];
+  
+  // restore token
   NSString *token = [[NSUserDefaults standardUserDefaults] objectForKey:@"last_pushed_token"];
   if (token) [self.tokenTextField setStringValue:token];
+    
+  // restore identity
+  NSData *identityData = [[NSUserDefaults standardUserDefaults] objectForKey:@"last_selected_identity"];
+  if (identityData) {
+      [self.APNS setIdentity:[self identityFromPersistent:identityData]];
+    
+      // KVO trigger
+      [self willChangeValueForKey:@"identityName"];
+      [self didChangeValueForKey:@"identityName"];
+  }
+
+  // restore sandbox
+  BOOL useSandbox = [[NSUserDefaults standardUserDefaults] boolForKey:@"last_sandbox_checked"];
+  self.sandboxCheckBox.state = useSandbox;
+  self.APNS.sandbox = useSandbox;
 }
 
 #pragma mark Actions
@@ -65,10 +82,18 @@ NSString * const kPBAppDelegateDefaultPayload = @"{\n\t\"aps\":{\n\t\t\"alert\":
   [self.tokenTextField setStringValue:token];
 }
 
--(void)chooseIdentityPanelDidEnd:(NSWindow *)sheet returnCode:(int)returnCode contextInfo:(void *)contextInfo {
-	if (returnCode == NSFileHandlingPanelOKButton) {		
-		[self.APNS setIdentity:[SFChooseIdentityPanel sharedChooseIdentityPanel].identity];
+- (IBAction)sandboxChecked:(NSButton *)sender {
+    self.APNS.sandbox = sender.state;
+    [[NSUserDefaults standardUserDefaults] setBool:sender.state forKey:@"last_sandbox_checked"];
+}
 
+-(void)chooseIdentityPanelDidEnd:(NSWindow *)sheet returnCode:(int)returnCode contextInfo:(void *)contextInfo {
+	if (returnCode == NSFileHandlingPanelOKButton) {
+        SecIdentityRef selectedIdentity = [SFChooseIdentityPanel sharedChooseIdentityPanel].identity;
+        [[NSUserDefaults standardUserDefaults] setObject:[self identityToPersistent:selectedIdentity]
+                                                  forKey:@"last_selected_identity"];
+		[self.APNS setIdentity:selectedIdentity];
+        
 		// KVO trigger
 		[self willChangeValueForKey:@"identityName"];
 		[self didChangeValueForKey:@"identityName"];
@@ -80,6 +105,7 @@ NSString * const kPBAppDelegateDefaultPayload = @"{\n\t\"aps\":{\n\t\t\"alert\":
     NSString *token = [self preparedToken];
     [self.APNS pushPayload:self.payload withToken:token];
     [[NSUserDefaults standardUserDefaults] setObject:token forKey:@"last_pushed_token"];
+    [[NSUserDefaults standardUserDefaults] setObject:self.fragaria.string forKey:@"last_payload"];
   } else {
 		NSAlert *alert = [NSAlert alertWithMessageText:@"Missing identity"
                                      defaultButton:@"OK"
@@ -209,6 +235,38 @@ NSString * const kPBAppDelegateDefaultPayload = @"{\n\t\"aps\":{\n\t\t\"alert\":
   return token;
 }
 
+- (NSData *)identityToPersistent:(SecIdentityRef)ident
+{
+    OSStatus status;
+    SecCertificateRef cert;
+    CFDataRef data = nil;
+    
+    status = SecIdentityCopyCertificate(ident, &cert);
+    if (status != noErr)
+        return nil;
+    status = SecKeychainItemCreatePersistentReference((SecKeychainItemRef)cert, &data);
+    CFRelease(cert);
+    if (status != noErr)
+        return nil;
+    
+    return CFBridgingRelease(data);
+}
+
+- (SecIdentityRef)identityFromPersistent:(NSData *)data
+{
+    OSStatus status;
+    SecKeychainItemRef cert;
+    SecIdentityRef ident = nil;
+    
+    status = SecKeychainItemCopyFromPersistentReference((__bridge CFDataRef)data, &cert);
+    if (status != noErr)
+        return nil;
+    status = SecIdentityCreateWithCertificate(NULL, (SecCertificateRef)cert, &ident);
+    CFRelease(cert);
+    
+    return ident;
+}
+
 #pragma mark - Properties
 
 - (NSString *)alertString {
@@ -249,7 +307,9 @@ NSString * const kPBAppDelegateDefaultPayload = @"{\n\t\"aps\":{\n\t\t\"alert\":
     
     dispatch_async(dispatch_get_main_queue(), ^{
       [self willChangeValueForKey:@"payload"];
-      [_fragaria setString:kPBAppDelegateDefaultPayload];
+      NSString *last_payload = [[NSUserDefaults standardUserDefaults] objectForKey:@"last_payload"];
+        last_payload = nil;
+      [_fragaria setString:last_payload ? last_payload : kPBAppDelegateDefaultPayload];
       [self didChangeValueForKey:@"payload"];
     });
   }
